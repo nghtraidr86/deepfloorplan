@@ -21,6 +21,13 @@ try:
 except ImportError:
     HAS_PDF2IMAGE = False
 
+try:
+    from dpi_manager import DPIManager, save_image_with_dpi
+    HAS_DPI_MANAGER = True
+except ImportError:
+    HAS_DPI_MANAGER = False
+    print("Warning: dpi_manager not available. DPI tracking will be limited.")
+
 
 class PDFScaleExtractor:
     """Extract scale information from PDF floor plans"""
@@ -378,16 +385,17 @@ class PDFScaleExtractor:
 
         return pixels_per_meter
 
-    def auto_extract_scale(self, pdf_path, dpi=300):
+    def auto_extract_scale(self, pdf_path, dpi=300, save_image_path=None):
         """
         Automatically extract scale from PDF
 
         Args:
             pdf_path: Path to PDF file
             dpi: DPI to use for conversion
+            save_image_path: Optional path to save the converted image
 
         Returns:
-            Dictionary with scale information
+            Dictionary with scale information and converted image
         """
         print("\n" + "="*80)
         print("AUTOMATIC SCALE EXTRACTION FROM PDF")
@@ -407,7 +415,8 @@ class PDFScaleExtractor:
             'scale_ratios_found': [],
             'pixels_per_meter_estimates': [],
             'ocr_text': '',
-            'scale_bars_detected': []
+            'scale_bars_detected': [],
+            'image': image
         }
 
         # Extract text using OCR
@@ -470,6 +479,20 @@ class PDFScaleExtractor:
         else:
             print("⚠️  No scale bars detected")
 
+        # Save image with DPI metadata if path provided
+        if save_image_path:
+            if HAS_DPI_MANAGER:
+                save_image_with_dpi(image, save_image_path, dpi)
+
+                # Register in DPI database
+                dpi_manager = DPIManager()
+                scale_info = result['pixels_per_meter_estimates'][0] if result['pixels_per_meter_estimates'] else None
+                dpi_manager.register_image(save_image_path, dpi, pdf_path, scale_info)
+            else:
+                cv2.imwrite(save_image_path, image)
+                print(f"Saved image to: {save_image_path}")
+                print(f"⚠️  DPI metadata not embedded (dpi_manager not available)")
+
         return result
 
 
@@ -499,8 +522,16 @@ def main():
     extractor = PDFScaleExtractor()
 
     if args.mode in ['auto', 'both']:
+        # Determine output image path
+        if args.output_image:
+            output_path = args.output_image
+        else:
+            # Auto-generate filename with DPI
+            base_name = os.path.splitext(os.path.basename(args.pdf_path))[0]
+            output_path = f"{base_name}_dpi{args.dpi}.png"
+
         # Automatic extraction
-        result = extractor.auto_extract_scale(args.pdf_path, args.dpi)
+        result = extractor.auto_extract_scale(args.pdf_path, args.dpi, output_path)
 
         if result and result['pixels_per_meter_estimates']:
             print("\n" + "="*80)
@@ -511,8 +542,10 @@ def main():
                 print(f"\nOption {i}: {estimate['description']}")
                 print(f"  Use: --scale={estimate['pixels_per_meter']:.2f}")
                 print(f"\n  Command:")
-                print(f"  python demo_measure.py --im_path=<image> --scale={estimate['pixels_per_meter']:.2f}")
+                print(f"  python demo_measure.py --im_path={output_path} --scale={estimate['pixels_per_meter']:.2f}")
 
+            print(f"\n💾 Image saved: {output_path}")
+            print(f"📊 DPI: {args.dpi} (embedded in image metadata)")
             print("\n" + "="*80)
 
     if args.mode in ['interactive', 'both']:
@@ -527,8 +560,15 @@ def main():
         if image is None:
             return
 
-        temp_image_path = args.output_image or 'temp_floorplan.png'
-        cv2.imwrite(temp_image_path, image)
+        temp_image_path = args.output_image or f'temp_floorplan_dpi{args.dpi}.png'
+
+        # Save with DPI metadata
+        if HAS_DPI_MANAGER:
+            save_image_with_dpi(image, temp_image_path, args.dpi)
+        else:
+            cv2.imwrite(temp_image_path, image)
+            print(f"⚠️  DPI metadata not embedded")
+
         print(f"\nSaved image to: {temp_image_path}")
 
         # Interactive measurement
@@ -538,10 +578,22 @@ def main():
         )
 
         if pixels_per_meter:
+            # Register in DPI database
+            if HAS_DPI_MANAGER:
+                dpi_manager = DPIManager()
+                scale_info = {
+                    'pixels_per_meter': pixels_per_meter,
+                    'method': 'interactive_scale_bar',
+                    'scale_bar_length_m': args.scale_bar_length
+                }
+                dpi_manager.register_image(temp_image_path, args.dpi, args.pdf_path, scale_info)
+
             print("\n" + "="*80)
             print("USE THIS SCALE")
             print("="*80)
             print(f"\npython demo_measure.py --im_path={temp_image_path} --scale={pixels_per_meter:.2f}")
+            print(f"\n💾 Image saved: {temp_image_path}")
+            print(f"📊 DPI: {args.dpi} (embedded in metadata)")
             print("\n" + "="*80)
 
 
