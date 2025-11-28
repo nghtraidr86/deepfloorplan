@@ -1,0 +1,21 @@
+# Requirements for Floor Plan Measurement System
+# Install with: pip install -r requirements_measurement.txt
+
+# Core dependencies
+numpy>=1.15.0
+scipy>=1.1.0
+opencv-python>=3.4.0
+matplotlib>=2.2.0
+
+# Deep learning (choose one based on your setup)
+# For GPU:
+# tensorflow-gpu==1.15.0
+# For CPU:
+# tensorflow==1.15.0
+
+# Optional: For automatic scale detection from text
+# pytesseract>=0.3.0
+
+# Image I/O (for Python 3 compatibility)
+imageio>=2.5.0
+Pillow>=6.0.0
