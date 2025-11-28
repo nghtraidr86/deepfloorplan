@@ -26,6 +26,7 @@ class PDFScaleExtractor:
     """Extract scale information from PDF floor plans"""
 
     def __init__(self):
+        # Metric scales (ratio)
         self.common_scales = {
             '1:50': 50,
             '1:100': 100,
@@ -37,6 +38,21 @@ class PDFScaleExtractor:
             '1/200': 200,
             '1/250': 250,
             '1/500': 500,
+        }
+
+        # Imperial/Architectural scales (inches on paper = feet in reality)
+        # Format: paper_inches: real_feet
+        self.imperial_scales = {
+            '1/16': 1,   # 1/16" = 1'
+            '1/8': 1,    # 1/8" = 1'
+            '3/16': 1,   # 3/16" = 1'
+            '1/4': 1,    # 1/4" = 1'
+            '3/8': 1,    # 3/8" = 1'
+            '1/2': 1,    # 1/2" = 1'
+            '3/4': 1,    # 3/4" = 1'
+            '1': 1,      # 1" = 1'
+            '1-1/2': 1,  # 1-1/2" = 1'
+            '3': 1,      # 3" = 1'
         }
 
     def convert_pdf_to_image(self, pdf_path, dpi=300):
@@ -80,8 +96,120 @@ class PDFScaleExtractor:
 
         return text
 
+    def parse_imperial_fraction(self, fraction_str):
+        """
+        Parse imperial fraction string to decimal
+
+        Args:
+            fraction_str: String like "1/4", "3/16", "1-1/2"
+
+        Returns:
+            Decimal value or None
+        """
+        fraction_str = fraction_str.strip()
+
+        # Handle mixed fractions like "1-1/2"
+        if '-' in fraction_str:
+            parts = fraction_str.split('-')
+            if len(parts) == 2:
+                whole = int(parts[0])
+                frac_parts = parts[1].split('/')
+                if len(frac_parts) == 2:
+                    numerator = int(frac_parts[0])
+                    denominator = int(frac_parts[1])
+                    return whole + (numerator / denominator)
+
+        # Handle simple fractions like "1/4"
+        elif '/' in fraction_str:
+            parts = fraction_str.split('/')
+            if len(parts) == 2:
+                numerator = int(parts[0])
+                denominator = int(parts[1])
+                return numerator / denominator
+
+        # Handle whole numbers
+        else:
+            try:
+                return float(fraction_str)
+            except:
+                return None
+
+        return None
+
+    def imperial_scale_to_ratio(self, paper_inches, real_feet):
+        """
+        Convert imperial scale to ratio
+
+        Args:
+            paper_inches: Inches on paper (e.g., 0.25 for 1/4")
+            real_feet: Feet in reality (usually 1)
+
+        Returns:
+            Scale ratio (e.g., 48 for 1/4"=1')
+        """
+        # Convert feet to inches: 1 foot = 12 inches
+        real_inches = real_feet * 12
+
+        # Scale ratio = real / paper
+        ratio = real_inches / paper_inches
+
+        return ratio
+
     def find_scale_in_text(self, text):
-        """Find scale ratio in text (e.g., 1:100, 1/200, etc.)"""
+        """
+        Find scale in text - supports both metric and imperial formats
+
+        Metric: 1:100, 1/200, etc.
+        Imperial: 1/4"=1', 3/16"=1', etc.
+
+        Returns:
+            Dictionary with 'metric_ratios' and 'imperial_scales'
+        """
+        result = {
+            'metric_ratios': [],
+            'imperial_scales': []
+        }
+
+        # ========== IMPERIAL SCALE PATTERNS ==========
+        # Pattern: 1/4"=1', 3/16"=1'-0", etc.
+        # Common formats:
+        # - 1/4"=1'
+        # - 1/4" = 1'-0"
+        # - 3/16"=1'
+        # - Scale: 1/4"=1'
+
+        imperial_patterns = [
+            # Pattern 1: "1/4"=1'" or "1/4" = 1'"
+            r'(\d+(?:-\d+)?/\d+|\d+)\s*["\u201d]\s*=\s*(\d+)\s*[\'\u2019]',
+
+            # Pattern 2: "Scale: 1/4"=1'"
+            r'[Ss]cale\s*[:\-]?\s*(\d+(?:-\d+)?/\d+|\d+)\s*["\u201d]\s*=\s*(\d+)\s*[\'\u2019]',
+
+            # Pattern 3: Without quotes: "1/4=1" or "1/4 = 1"
+            r'(\d+(?:-\d+)?/\d+)\s*=\s*(\d+)',
+        ]
+
+        for pattern in imperial_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for match in matches:
+                if len(match) >= 2:
+                    paper_str = match[0]
+                    real_str = match[1]
+
+                    # Parse fractions
+                    paper_inches = self.parse_imperial_fraction(paper_str)
+                    real_feet = float(real_str) if real_str.isdigit() else None
+
+                    if paper_inches and real_feet:
+                        ratio = self.imperial_scale_to_ratio(paper_inches, real_feet)
+                        result['imperial_scales'].append({
+                            'notation': f'{paper_str}"={real_str}\'',
+                            'paper_inches': paper_inches,
+                            'real_feet': real_feet,
+                            'ratio': ratio
+                        })
+
+        # ========== METRIC SCALE PATTERNS ==========
         # Pattern 1: "1:XXX" or "1/XXX" format
         pattern1 = r'1\s*[:\/]\s*(\d+)'
 
@@ -91,11 +219,7 @@ class PDFScaleExtractor:
         # Pattern 3: "SCALE 1:XXX" format
         pattern3 = r'SCALE\s+1\s*[:\/]\s*(\d+)'
 
-        # Pattern 4: Scale bar with measurement (e.g., "0 5 10m" or "0' 10' 20'")
-        pattern4 = r'(\d+)\s*[\'\"m]\s+(\d+)\s*[\'\"m]'
-
         all_patterns = [pattern2, pattern3, pattern1]
-        found_scales = []
 
         for pattern in all_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
@@ -107,9 +231,10 @@ class PDFScaleExtractor:
                         scale_ratio = int(match) if match.isdigit() else None
 
                     if scale_ratio and 10 <= scale_ratio <= 1000:
-                        found_scales.append(scale_ratio)
+                        if scale_ratio not in result['metric_ratios']:
+                            result['metric_ratios'].append(scale_ratio)
 
-        return found_scales
+        return result
 
     def calculate_pixels_per_meter(self, scale_ratio, dpi=300):
         """
@@ -294,23 +419,43 @@ class PDFScaleExtractor:
             print(f"Extracted {len(text)} characters of text\n")
 
             # Find scale in text
-            print("Step 2: Looking for scale ratios in text...")
-            scale_ratios = self.find_scale_in_text(text)
+            print("Step 2: Looking for scale notations in text...")
+            scales = self.find_scale_in_text(text)
 
-            if scale_ratios:
-                result['scale_ratios_found'] = scale_ratios
-                print(f"✅ Found scale ratio(s): {scale_ratios}")
+            # Process Imperial scales (e.g., 1/4"=1')
+            if scales['imperial_scales']:
+                print(f"\n✅ Found Imperial/Architectural scale(s):")
+                for imp_scale in scales['imperial_scales']:
+                    notation = imp_scale['notation']
+                    ratio = imp_scale['ratio']
+                    ppm = self.calculate_pixels_per_meter(ratio, dpi)
 
-                for ratio in scale_ratios:
+                    result['pixels_per_meter_estimates'].append({
+                        'scale_type': 'imperial',
+                        'notation': notation,
+                        'scale_ratio': ratio,
+                        'pixels_per_meter': ppm,
+                        'description': f"{notation} (ratio 1:{ratio:.1f}) at {dpi} DPI"
+                    })
+                    print(f"   {notation} → Ratio 1:{ratio:.1f} → {ppm:.2f} pixels/meter")
+
+            # Process Metric scales (e.g., 1:100)
+            if scales['metric_ratios']:
+                print(f"\n✅ Found Metric scale ratio(s):")
+                result['scale_ratios_found'] = scales['metric_ratios']
+
+                for ratio in scales['metric_ratios']:
                     ppm = self.calculate_pixels_per_meter(ratio, dpi)
                     result['pixels_per_meter_estimates'].append({
+                        'scale_type': 'metric',
                         'scale_ratio': ratio,
                         'pixels_per_meter': ppm,
                         'description': f"1:{ratio} at {dpi} DPI"
                     })
                     print(f"   1:{ratio} → {ppm:.2f} pixels/meter")
-            else:
-                print("⚠️  No scale ratio found in text")
+
+            if not scales['imperial_scales'] and not scales['metric_ratios']:
+                print("⚠️  No scale notation found in text")
         else:
             print("⚠️  No text extracted from PDF")
 

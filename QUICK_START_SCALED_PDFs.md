@@ -146,13 +146,26 @@ TOTAL FLOOR AREA:              48.50 m² (522.00 sqft)
 
 ## Common Scales Reference
 
+### Imperial/Architectural Scales (US - like 1/4"=1')
+
+| Scale Notation | Ratio | Pixels/Meter @ 300 DPI | Use Case |
+|---------------|-------|------------------------|----------|
+| 1/8"=1' | 96:1 | 123.07 | Small floor plans |
+| 3/16"=1' | 64:1 | 184.61 | Common floor plans |
+| **1/4"=1'** | **48:1** | **246.14** | **Most common residential** |
+| 3/8"=1' | 32:1 | 369.21 | Detailed plans |
+| 1/2"=1' | 24:1 | 492.29 | Detail drawings |
+
+### Metric Scales (International - like 1:100)
+
 | Scale Notation | Pixels/Meter @ 300 DPI | Use Case |
 |---------------|------------------------|----------|
 | 1:50 | 236.22 | Detailed plans |
 | 1:100 | 118.11 | Common residential |
 | 1:200 | 59.06 | Larger buildings |
 | 1:250 | 47.24 | Site plans |
-| 1:500 | 23.62 | Large developments |
+
+**The tool automatically detects both imperial and metric scales!**
 
 ## Troubleshooting
 
